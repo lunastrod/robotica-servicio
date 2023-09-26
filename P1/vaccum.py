@@ -20,6 +20,9 @@ class MapCell:
 
     def __str__(self):
         return f"Position: {self.position}, Tags: {self.tags}"
+    
+    def __repr__(self):
+        return f"Position: {self.position}, Tags: {self.tags}"
 
     def add_tag(self, tag):
         self.tags[tag] = True
@@ -30,10 +33,14 @@ class MapCell:
 
 
 class MapGrid:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.grid = [[MapCell((x, y), False) for x in range(width)] for y in range(height)]
+    def __str__(self):
+        return f"Width: {self.width}, Height: {self.height}, Grid: {self.grid}"
     
 
 if __name__ == "__main__":
-    cell= MapCell((0,0), False)
-    print(cell)
-    cell= MapCell((0,0), True)
-    print(cell)
+    map=MapGrid(10,10)
+    print(map)
