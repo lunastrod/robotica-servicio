@@ -1,22 +1,29 @@
 """
-implement the logic of a navigation algorithm for an autonomous vacuum cleaner by making use of the location of the robot.
-The robot is equipped with a map and knows it’s current location in it.
-The main objective will be to cover the largest area of ​​a house using the programmed algorithm
+26-sep: I started with my navigation algorithm. I made 3 classes
+class MapGrid: it represents the map, it has a grid of cells
+class MapCell: it represents a cell, it has a position and tags
+class Robot: it represents the robot, it has a position and a map
 
-Our solution will be a complete coverage BSA (backtracking spiral algorithm).
-This algorithm divides the map into a grid.
-the algorithm is:
-    try to move east/south/west/north (if you can't in one direction because there's an obstacle, try in another direction)
-    if you are surrounded by obstacles, move to the closest empty square
-    every square you have visited is a "virtual obstacle" (marked as not dirty)
+The map is generated from an image, where the black pixels are obstacles and the white pixels are free spaces.
+The robot can move in 4 directions (up, down, left, right).
+When the robot moves, it cleans the current cell and moves to a dirty neighbour cell.
+The robot tends to form a spiral, but it eventually gets stuck.
+If there are no dirty neighbour cells, the robot moves to the closest dirty cell.
+The closest dirty cell is calculated using the A* algorithm.
+The robot moves to the closest dirty cell using the shortest path dictated by the A* algorithm.
 
-The map will be generated from an image, where the black pixels will be obstacles and the white pixels will be free spaces.
-The robot will be able to move in 4 directions (up, down, left, right) and will have a sensor that will allow it to detect obstacles.
+27-sep: I implemented VFF (virtual force field) controller for the robot.
+The robot moves to the points in the list using the VFF controller.
+The main problem now is that the image has pixel coordinates, the map has grid coordinates and the robot has real coordinates.
+I need to convert the coordinates between the three systems.
+I don't know how to read the image data from unibotics, temporarily I will use a local image.
 """
+        
 
 import numpy as np
 import time
 from PIL import Image
+import math
 class MapCell:
     def __init__(self, position, is_obstacle):
         self.position = position
@@ -48,6 +55,7 @@ class MapCell:
 
 class MapGrid:
     def __init__(self, image_data, grid_size):
+        self.grid_size = grid_size
         self.width = image_data.shape[0]//grid_size
         self.height = image_data.shape[1]//grid_size
         self.grid=[["." for x in range(self.height)] for y in range(self.width)]
@@ -207,6 +215,108 @@ class Robot:
         time.sleep(0.02)
         print(map)
 
+def force_to_vw(force):
+    """
+    This function converts the control signal (force) into the desired linear and angular velocities of the robot.
+    """
+    maxv = 5
+    maxw = 0.8
+    kv = 2
+    kw = 10
+
+    angle = math.atan2(force[1], force[0])
+    #print("prev angle",math.degrees(angle))
+    print("angle", math.degrees(angle))
+    # v=math.cos(angle)*maxv
+    # v=max(0,-1.62*angle**2+1)*maxv
+    v = maxv/(1+kv*angle**2)-0.3
+    # w=math.sin(angle)*maxw
+    w = max(-maxw, min(maxw, kw*angle**3))
+    print("force", force, "translates to v,w", v, w)
+    return v, w
+
+class RobotController:
+    def __init__(self):
+        self.points = [(0,1.5),(0,0),(0,1),(0,2),(-1,2)]
+
+    def VFF_controller(self, goal):
+        #parameters
+        goal_k = 2
+        max_goal_force = 2.6
+        #update the goal force
+        goal_mod = math.sqrt(goal[0]*goal[0]+goal[1]*goal[1])
+        unit_goal = [goal[0]/goal_mod, goal[1]/goal_mod]
+        goal_strength = min(max_goal_force, goal_k*goal_mod)
+        goal_force = [unit_goal[0]*goal_strength, unit_goal[1]*goal_strength]
+        return goal_force
+    
+    def force_to_vw(self, force):
+        maxv = 1
+        maxw = 3
+        kv = 2
+        kw = 10
+
+        angle = math.atan2(-force[1], force[0])
+        print("angle",angle)
+        v=maxv/(1+kv*angle**2)-0.1685
+        w=max(-maxw, min(maxw, kw*angle**3))
+        return v, w
+    
+    def is_close(self, goal):
+        threshold = 0.1
+        if(abs(goal[0]) < threshold and abs(goal[1]) < threshold):
+            return True
+        return False
+    
+    def local_coords(self, point, position, angle):
+        """
+        return the local coordinates of a point
+        """
+        x = point[0]-position[0]
+        y = point[1]-position[1]
+        x2 = x*math.cos(angle) + y*math.sin(angle)
+        y2 = -x*math.sin(angle) + y*math.cos(angle)
+        return (x2, y2)
+    
+    def step(self, position, angle):
+        """
+        return the linear and angular velocity of the robot
+        """
+        if(len(self.points)==0):
+          return 0,0
+        #get the current point
+        point = self.points[0]
+        #get the local coordinates of the point
+        local_point = self.local_coords(point, position, angle)
+        print("local_point",local_point)
+        #get the goal force
+        goal_force = self.VFF_controller(local_point)
+        #get the linear and angular velocity
+        v, w = self.force_to_vw(goal_force)
+        #check if the robot is close to the point
+        if(self.is_close(local_point)):
+            #remove the point from the list
+            self.points.pop(0)
+        
+        return v, w
+    
+    def map_to_real_coords(self, position):
+        """
+        convert the map coordinates to real coordinates
+        """
+        #rotate 180 degrees
+        x = position[0]
+        y = position[1]
+        x = -x
+        y = -y
+        #scale
+
+        return (x,y)
+
+
+
+
+
     
 
 if __name__ == "__main__":
@@ -221,19 +331,4 @@ if __name__ == "__main__":
     robot = Robot(map, (5,5))
     for i in range(1000):
         robot.step()
-        
-"""
-26-sep: I started with my navigation algorithm. I made 3 classes
-class MapGrid: it represents the map, it has a grid of cells
-class MapCell: it represents a cell, it has a position and tags
-class Robot: it represents the robot, it has a position and a map
-
-The map is generated from an image, where the black pixels are obstacles and the white pixels are free spaces.
-The robot can move in 4 directions (up, down, left, right).
-When the robot moves, it cleans the current cell and moves to a dirty neighbour cell.
-The robot tends to form a spiral, but it eventually gets stuck.
-If there are no dirty neighbour cells, the robot moves to the closest dirty cell.
-The closest dirty cell is calculated using the A* algorithm.
-The robot moves to the closest dirty cell using the shortest path dictated by the A* algorithm.
-"""
         
