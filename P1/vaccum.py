@@ -41,17 +41,26 @@ class MapCell:
 class MapGrid:
     def __init__(self, image_data, grid_size):
         self.grid_size = grid_size
-        self.width = image_data.shape[0]//grid_size
-        self.height = image_data.shape[1]//grid_size
+        self.image_data=self.image_preprocessing(image_data,7)
+        self.width = self.image_data.shape[0]//grid_size
+        self.height = self.image_data.shape[1]//grid_size
         self.grid=[["." for x in range(self.height)] for y in range(self.width)]
         for x in range(self.width):
             for y in range(self.height):
                 #get the pixels of the cell
-                cell_pixels = image_data[x*grid_size:(x+1)*grid_size, y*grid_size:(y+1)*grid_size]
+                cell_pixels = self.image_data[x*grid_size:(x+1)*grid_size, y*grid_size:(y+1)*grid_size]
                 #check if the cell is an obstacle
                 is_obstacle = np.any(cell_pixels == 0)
                 #create the cell
                 self.grid[x][y] = MapCell((x, y), is_obstacle)
+
+    def image_preprocessing(self, image, robot_radius):
+        # Perform dilation to enlarge the black obstacle zones
+        inverted_image = cv2.bitwise_not(image)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*robot_radius+1, 2*robot_radius+1))
+        enlarged_obstacles = cv2.dilate(inverted_image, kernel)
+        enlarged_obstacles = cv2.bitwise_not(enlarged_obstacles)
+        return enlarged_obstacles
 
     def __str__(self):
         text=f"Width: {self.width}, Height: {self.height}\n"
@@ -61,11 +70,8 @@ class MapGrid:
             text += "\n"
         return text
     
-    def draw_map(self, image):
-        """
-        draw the map on top of the image
-        """
-        new_image = image.copy()
+    def draw_map(self):
+        new_image = self.image_data
         for i in range(self.height):
             for j in range(self.width):
                 pixel_coords = self.grid_to_pixel_coords((j,i))#warning, the x and y are inverted
@@ -76,6 +82,21 @@ class MapGrid:
         #paint the origin of the real coordinates
         cv2.circle(new_image, self.real_to_pixel_coords((0,0)), 5, (0,255,0), -1)
         cv2.circle(new_image, self.real_to_pixel_coords((-1,1.5)), 5, (0,255,0), -1)
+        return new_image
+
+    def draw_plan(self, plan):
+        new_image = self.image_data
+        for i in range(self.height):
+            for j in range(self.width):
+                pixel_coords = self.grid_to_pixel_coords((j,i))
+                if(self.grid[i][j].tags["obstacle"]):
+                    cv2.rectangle(new_image, (pixel_coords[0]-self.grid_size//3, pixel_coords[1]-self.grid_size//3), (pixel_coords[0]+self.grid_size//3, pixel_coords[1]+self.grid_size//3), (0,0,127), -1)
+                else:
+                    cv2.rectangle(new_image, (pixel_coords[0]-self.grid_size//3, pixel_coords[1]-self.grid_size//3), (pixel_coords[0]+self.grid_size//3, pixel_coords[1]+self.grid_size//3), (127,0,0), -1)
+        #paint the plan
+        for i in range(len(plan)-1):
+            cv2.line(new_image, self.real_to_pixel_coords(plan[i]), self.real_to_pixel_coords(plan[i+1]), (0,255,0), 2)
+
         return new_image
 
     
@@ -155,7 +176,7 @@ class MapGrid:
                     f_score[neighbor] = g_score[neighbor] + self.path_distance(neighbor, end)
                     if(neighbor not in open_set):
                         open_set.add(neighbor)
-        return None
+        return []
         
     def closest_dirty_cell(self,position):
         """
@@ -183,8 +204,8 @@ class MapGrid:
         """
         #the map is 10x10 meters
         #scale
-        x = position[0]*image_data.shape[0]//10
-        y = position[1]*image_data.shape[1]//10
+        x = position[0]*image_data.shape[0]/10
+        y = position[1]*image_data.shape[1]/10
         x = -x #flip the x axis
         #translate
         x = x+580
@@ -203,12 +224,19 @@ class MapGrid:
         """
         convert grid coords to real coords
         """
-        x=self.grid_size*position[0]+self.grid_size//2
-        y=self.grid_size*position[1]+self.grid_size//2
+        x=self.grid_size*position[0]+self.grid_size/2
+        y=self.grid_size*position[1]+self.grid_size/2
         #now we have pixel coords. convert to real coords translating and scaling
         x = x-580
         y = y-420
-        x = -x
+        #flip axis
+        x=-x
+        """
+        temp = -y
+        y = x
+        x = temp
+        """
+        #scale
         x = x*10/image_data.shape[0]
         y = y*10/image_data.shape[1]
         return (x,y)
@@ -220,8 +248,8 @@ class MapGrid:
         #convert to pixel coords
         x,y=self.real_to_pixel_coords(position)
         #convert to grid coords
-        x = round(x//self.grid_size)
-        y = round(y//self.grid_size)
+        x = round(x/self.grid_size)
+        y = round(y/self.grid_size)
         return (x,y)
         
 
@@ -260,10 +288,10 @@ class RobotPlanner:
         #add the robot to the new cell
         self.map.grid[self.position[0]][self.position[1]].edit_tag("robot", True)
         #add the action to the list
-        self.actions.append(position)
+        self.actions.append((self.position[1],self.position[0]))
         if(not UNIBOTICS):
             pass
-            #print(map)
+            print(map)
             #time.sleep(0.2)
 
 class RobotController:
@@ -330,6 +358,34 @@ class RobotController:
             self.points.pop(0)
         
         return v, w
+
+def test_changes_coordinates(map):
+    #known values
+    #real - grid - pixel
+    #0,0 - 12,9 - 580,420
+    #-1,1.5 - 15,12 - 682,571
+    #functions:
+    #real_to_pixel_coords
+    #real_to_grid_coords
+    #grid_to_real_coords
+    #grid_to_pixel_coords
+    #all of the coordinates are in the same order (x,y)
+
+    print("testing changes coordinates")
+
+    print("origin",map.real_to_pixel_coords((0,0)))
+    print("origin",map.real_to_grid_coords((0,0)))
+    print("origin",map.grid_to_real_coords((12,9)))
+    print("origin",map.grid_to_pixel_coords((12,9)))
+
+    print("point",map.real_to_pixel_coords((-1,1.5)))
+    print("point",map.real_to_grid_coords((-1,1.5)))
+    print("point",map.grid_to_real_coords((15,12)))
+    print("point",map.grid_to_pixel_coords((15,12)))
+
+    print("point",map.real_to_grid_coords((-1.5,1.16)))
+
+
         
 if(UNIBOTICS):
     image_path='RoboticsAcademy/exercises/static/exercises/vacuum_cleaner_loc/resources/images/mapgrannyannie.png'
@@ -337,10 +393,11 @@ else:
     image_path="map.png"
 image_data=cv2.imread(image_path)
 #create map grid
-map = MapGrid(image_data, 45)
+map = MapGrid(image_data, 30)
 if(not UNIBOTICS):
     #draw the map
-    new_image=map.draw_map(image_data)
+    test_changes_coordinates(map)
+    new_image=map.draw_map()
     cv2.imshow("map",new_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -355,8 +412,12 @@ for point in plan:
     #translate plan from grid coords to real coords
     real_plan.append(map.grid_to_real_coords(point))
     print(round(real_plan[-1][0],2),round(real_plan[-1][1],2))
-    time.sleep(1)
 print("plan calculated")
+if(not UNIBOTICS):
+    new_image=map.draw_plan(real_plan)
+    cv2.imshow("plan",new_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 #create the controller
 robot_controller = RobotController(real_plan)
 
@@ -373,25 +434,4 @@ while True:
     print(v,w)
     if(UNIBOTICS):
         HAL.setV(v)
-        HAL.setW(w)        
-
-"""
-26-sep: I started with my navigation algorithm. I made 3 classes
-class MapGrid: it represents the map, it has a grid of cells
-class MapCell: it represents a cell, it has a position and tags
-class Robot: it represents the robot, it has a position and a map
-
-The map is generated from an image, where the black pixels are obstacles and the white pixels are free spaces.
-The robot can move in 4 directions (up, down, left, right).
-When the robot moves, it cleans the current cell and moves to a dirty neighbour cell.
-The robot tends to form a spiral, but it eventually gets stuck.
-If there are no dirty neighbour cells, the robot moves to the closest dirty cell.
-The closest dirty cell is calculated using the A* algorithm.
-The robot moves to the closest dirty cell using the shortest path dictated by the A* algorithm.
-
-27-sep: I implemented VFF (virtual force field) controller for the robot.
-The robot moves to the points in the list using the VFF controller.
-The main problem now is that the image has pixel coordinates, the map has grid coordinates and the robot has real coordinates.
-I need to convert the coordinates between the three systems.
-I don't know how to read the image data from unibotics, temporarily I will use a local image.
-"""
+        HAL.setW(w)
