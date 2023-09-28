@@ -1,28 +1,13 @@
-"""
-26-sep: I started with my navigation algorithm. I made 3 classes
-class MapGrid: it represents the map, it has a grid of cells
-class MapCell: it represents a cell, it has a position and tags
-class Robot: it represents the robot, it has a position and a map
 
-The map is generated from an image, where the black pixels are obstacles and the white pixels are free spaces.
-The robot can move in 4 directions (up, down, left, right).
-When the robot moves, it cleans the current cell and moves to a dirty neighbour cell.
-The robot tends to form a spiral, but it eventually gets stuck.
-If there are no dirty neighbour cells, the robot moves to the closest dirty cell.
-The closest dirty cell is calculated using the A* algorithm.
-The robot moves to the closest dirty cell using the shortest path dictated by the A* algorithm.
-
-27-sep: I implemented VFF (virtual force field) controller for the robot.
-The robot moves to the points in the list using the VFF controller.
-The main problem now is that the image has pixel coordinates, the map has grid coordinates and the robot has real coordinates.
-I need to convert the coordinates between the three systems.
-I don't know how to read the image data from unibotics, temporarily I will use a local image.
-"""
-        
+UNIBOTICS = False
+if(UNIBOTICS):
+    from GUI import GUI
+    from HAL import HAL
 
 import numpy as np
 import time
 from PIL import Image
+import cv2
 import math
 class MapCell:
     def __init__(self, position, is_obstacle):
@@ -75,6 +60,24 @@ class MapGrid:
                 text += f"{cell} "
             text += "\n"
         return text
+    
+    def draw_map(self, image):
+        """
+        draw the map on top of the image
+        """
+        new_image = image.copy()
+        for i in range(self.height):
+            for j in range(self.width):
+                pixel_coords = self.grid_to_pixel_coords((j,i))#warning, the x and y are inverted
+                if(self.grid[i][j].tags["obstacle"]):
+                    cv2.rectangle(new_image, (pixel_coords[0]-self.grid_size//3, pixel_coords[1]-self.grid_size//3), (pixel_coords[0]+self.grid_size//3, pixel_coords[1]+self.grid_size//3), (0,0,127), -1)
+                else:
+                    cv2.rectangle(new_image, (pixel_coords[0]-self.grid_size//3, pixel_coords[1]-self.grid_size//3), (pixel_coords[0]+self.grid_size//3, pixel_coords[1]+self.grid_size//3), (127,0,0), -1)
+        #paint the origin of the real coordinates
+        cv2.circle(new_image, self.real_to_pixel_coords((0,0)), 5, (0,255,0), -1)
+        cv2.circle(new_image, self.real_to_pixel_coords((-1,1.5)), 5, (0,255,0), -1)
+        return new_image
+
     
     def get_neighbors(self, position):
         """
@@ -174,11 +177,56 @@ class MapGrid:
                         shortest_path = path
         return shortest_path
 
-        
+    def real_to_pixel_coords(self, position):
+        """
+        convert the real coordinates to map coordinates
+        """
+        #the map is 10x10 meters
+        #scale
+        x = position[0]*image_data.shape[0]//10
+        y = position[1]*image_data.shape[1]//10
+        x = -x #flip the x axis
+        #translate
+        x = x+580
+        y = y+420
+        return (round(x),round(y))
+
+    def grid_to_pixel_coords(self, position):
+        """
+        convert the map coordinates to pixel coordinates
+        """
+        x=self.grid_size*position[0]+self.grid_size//2
+        y=self.grid_size*position[1]+self.grid_size//2
+        return (x,y)
+    
+    def grid_to_real_coords(self, position):
+        """
+        convert grid coords to real coords
+        """
+        x=self.grid_size*position[0]+self.grid_size//2
+        y=self.grid_size*position[1]+self.grid_size//2
+        #now we have pixel coords. convert to real coords translating and scaling
+        x = x-580
+        y = y-420
+        x = -x
+        x = x*10/image_data.shape[0]
+        y = y*10/image_data.shape[1]
+        return (x,y)
+
+    def real_to_grid_coords(self, position):
+        """
+        convert real coords to grid coords
+        """
+        #convert to pixel coords
+        x,y=self.real_to_pixel_coords(position)
+        #convert to grid coords
+        x = round(x//self.grid_size)
+        y = round(y//self.grid_size)
+        return (x,y)
         
 
-    
-class Robot:
+
+class RobotPlanner:
     def __init__(self, map, position):
         self.map = map
         self.position = position
@@ -211,33 +259,16 @@ class Robot:
         self.position = position
         #add the robot to the new cell
         self.map.grid[self.position[0]][self.position[1]].edit_tag("robot", True)
-
-        time.sleep(0.02)
-        print(map)
-
-def force_to_vw(force):
-    """
-    This function converts the control signal (force) into the desired linear and angular velocities of the robot.
-    """
-    maxv = 5
-    maxw = 0.8
-    kv = 2
-    kw = 10
-
-    angle = math.atan2(force[1], force[0])
-    #print("prev angle",math.degrees(angle))
-    print("angle", math.degrees(angle))
-    # v=math.cos(angle)*maxv
-    # v=max(0,-1.62*angle**2+1)*maxv
-    v = maxv/(1+kv*angle**2)-0.3
-    # w=math.sin(angle)*maxw
-    w = max(-maxw, min(maxw, kw*angle**3))
-    print("force", force, "translates to v,w", v, w)
-    return v, w
+        #add the action to the list
+        self.actions.append(position)
+        if(not UNIBOTICS):
+            pass
+            #print(map)
+            #time.sleep(0.2)
 
 class RobotController:
-    def __init__(self):
-        self.points = [(0,1.5),(0,0),(0,1),(0,2),(-1,2)]
+    def __init__(self, plan):
+        self.points = plan
 
     def VFF_controller(self, goal):
         #parameters
@@ -257,7 +288,7 @@ class RobotController:
         kw = 10
 
         angle = math.atan2(-force[1], force[0])
-        print("angle",angle)
+        #print("angle",angle)
         v=maxv/(1+kv*angle**2)-0.1685
         w=max(-maxw, min(maxw, kw*angle**3))
         return v, w
@@ -288,7 +319,7 @@ class RobotController:
         point = self.points[0]
         #get the local coordinates of the point
         local_point = self.local_coords(point, position, angle)
-        print("local_point",local_point)
+        #print("local_point",local_point)
         #get the goal force
         goal_force = self.VFF_controller(local_point)
         #get the linear and angular velocity
@@ -299,36 +330,68 @@ class RobotController:
             self.points.pop(0)
         
         return v, w
-    
-    def map_to_real_coords(self, position):
-        """
-        convert the map coordinates to real coordinates
-        """
-        #rotate 180 degrees
-        x = position[0]
-        y = position[1]
-        x = -x
-        y = -y
-        #scale
-
-        return (x,y)
-
-
-
-
-
-    
-
-if __name__ == "__main__":
-    #open image
-    #image = Image.open("map.png")
-    with Image.open("map.png") as image:
-        #convert image to numpy array
-        image_data = np.asarray(image)
-    #create map grid
-    map = MapGrid(image_data, 15)
-    #create robot
-    robot = Robot(map, (5,5))
-    for i in range(1000):
-        robot.step()
         
+if(UNIBOTICS):
+    image_path='RoboticsAcademy/exercises/static/exercises/vacuum_cleaner_loc/resources/images/mapgrannyannie.png'
+else:
+    image_path="map.png"
+image_data=cv2.imread(image_path)
+#create map grid
+map = MapGrid(image_data, 45)
+if(not UNIBOTICS):
+    #draw the map
+    new_image=map.draw_map(image_data)
+    cv2.imshow("map",new_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+#create the planner
+robot_planner=RobotPlanner(map, map.real_to_grid_coords((-1,1.5)))
+print("calculating plan")
+for i in range(1000):
+    robot_planner.step()
+plan=robot_planner.actions
+real_plan=[]
+for point in plan:
+    #translate plan from grid coords to real coords
+    real_plan.append(map.grid_to_real_coords(point))
+    print(round(real_plan[-1][0],2),round(real_plan[-1][1],2))
+    time.sleep(1)
+print("plan calculated")
+#create the controller
+robot_controller = RobotController(real_plan)
+
+while True:
+    if(UNIBOTICS):
+        position=(HAL.getPose3d().x,HAL.getPose3d().y)
+        angle=HAL.getPose3d().yaw
+    else:
+        position=(0,0)
+        angle=0
+    v,w=robot_controller.step(position,angle)
+    print("current goal",robot_controller.points[0])
+    print("current position",position)
+    print(v,w)
+    if(UNIBOTICS):
+        HAL.setV(v)
+        HAL.setW(w)        
+
+"""
+26-sep: I started with my navigation algorithm. I made 3 classes
+class MapGrid: it represents the map, it has a grid of cells
+class MapCell: it represents a cell, it has a position and tags
+class Robot: it represents the robot, it has a position and a map
+
+The map is generated from an image, where the black pixels are obstacles and the white pixels are free spaces.
+The robot can move in 4 directions (up, down, left, right).
+When the robot moves, it cleans the current cell and moves to a dirty neighbour cell.
+The robot tends to form a spiral, but it eventually gets stuck.
+If there are no dirty neighbour cells, the robot moves to the closest dirty cell.
+The closest dirty cell is calculated using the A* algorithm.
+The robot moves to the closest dirty cell using the shortest path dictated by the A* algorithm.
+
+27-sep: I implemented VFF (virtual force field) controller for the robot.
+The robot moves to the points in the list using the VFF controller.
+The main problem now is that the image has pixel coordinates, the map has grid coordinates and the robot has real coordinates.
+I need to convert the coordinates between the three systems.
+I don't know how to read the image data from unibotics, temporarily I will use a local image.
+"""
