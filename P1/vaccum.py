@@ -41,7 +41,7 @@ class MapCell:
 class MapGrid:
     def __init__(self, image_data, grid_size):
         self.grid_size = grid_size
-        self.image_data=self.image_preprocessing(image_data,7)
+        self.image_data=self.image_preprocessing(image_data,8)
         self.width = self.image_data.shape[0]//grid_size
         self.height = self.image_data.shape[1]//grid_size
         self.grid=[["." for x in range(self.height)] for y in range(self.width)]
@@ -257,9 +257,9 @@ class MapGrid:
 class RobotPlanner:
     def __init__(self, map, position):
         self.map = map
-        self.position = position
+        self.position = (position[1],position[0])
         self.actions = []
-        map.grid[position[0]][position[1]].edit_tag("robot", True)
+        map.grid[position[1]][position[0]].edit_tag("robot", True)
 
     def step(self):
         neighbors = self.map.get_neighbors(self.position)
@@ -310,19 +310,24 @@ class RobotController:
         return goal_force
     
     def force_to_vw(self, force):
-        maxv = 1
+        maxv = 1.5
         maxw = 3
-        kv = 2
+        kv = 3
         kw = 10
 
         angle = math.atan2(-force[1], force[0])
+        #v=maxv/(1+kv*angle**2)-0.1685
+        if(angle > -math.pi/12 and angle < math.pi/12):
+            magnitude = math.sqrt(force[0]*force[0]+force[1]*force[1])
+            v = min(maxv, kv*magnitude)
+        else:
+            v = 0
         #print("angle",angle)
-        v=maxv/(1+kv*angle**2)-0.1685
         w=max(-maxw, min(maxw, kw*angle**3))
         return v, w
     
     def is_close(self, goal):
-        threshold = 0.1
+        threshold = 0.2
         if(abs(goal[0]) < threshold and abs(goal[1]) < threshold):
             return True
         return False
@@ -358,34 +363,6 @@ class RobotController:
             self.points.pop(0)
         
         return v, w
-
-def test_changes_coordinates(map):
-    #known values
-    #real - grid - pixel
-    #0,0 - 12,9 - 580,420
-    #-1,1.5 - 15,12 - 682,571
-    #functions:
-    #real_to_pixel_coords
-    #real_to_grid_coords
-    #grid_to_real_coords
-    #grid_to_pixel_coords
-    #all of the coordinates are in the same order (x,y)
-
-    print("testing changes coordinates")
-
-    print("origin",map.real_to_pixel_coords((0,0)))
-    print("origin",map.real_to_grid_coords((0,0)))
-    print("origin",map.grid_to_real_coords((12,9)))
-    print("origin",map.grid_to_pixel_coords((12,9)))
-
-    print("point",map.real_to_pixel_coords((-1,1.5)))
-    print("point",map.real_to_grid_coords((-1,1.5)))
-    print("point",map.grid_to_real_coords((15,12)))
-    print("point",map.grid_to_pixel_coords((15,12)))
-
-    print("point",map.real_to_grid_coords((-1.5,1.16)))
-
-
         
 if(UNIBOTICS):
     image_path='RoboticsAcademy/exercises/static/exercises/vacuum_cleaner_loc/resources/images/mapgrannyannie.png'
@@ -396,7 +373,6 @@ image_data=cv2.imread(image_path)
 map = MapGrid(image_data, 30)
 if(not UNIBOTICS):
     #draw the map
-    test_changes_coordinates(map)
     new_image=map.draw_map()
     cv2.imshow("map",new_image)
     cv2.waitKey(0)
