@@ -41,7 +41,7 @@ class MapCell:
 class MapGrid:
     def __init__(self, image_data, grid_size):
         self.grid_size = grid_size
-        self.image_data=self.image_preprocessing(image_data,8)
+        self.image_data=self.image_preprocessing(image_data,18)
         self.width = self.image_data.shape[0]//grid_size
         self.height = self.image_data.shape[1]//grid_size
         self.grid=[["." for x in range(self.height)] for y in range(self.width)]
@@ -297,7 +297,10 @@ class RobotPlanner:
 class RobotController:
     def __init__(self, plan):
         self.points = plan
-
+        self.prev_error_distance = 0
+        self.prev_error_angle = 0
+    
+    """
     def VFF_controller(self, goal):
         #parameters
         goal_k = 2
@@ -325,9 +328,66 @@ class RobotController:
         #print("angle",angle)
         w=max(-maxw, min(maxw, kw*angle**3))
         return v, w
+    """
+    def pd_controller(self, start, goal, current_position, current_angle):
+        # Constants for PD control
+        Kp_distance = 0.5  # Proportional gain for distance control
+        Kd_distance = 0.1  # Derivative gain for distance control
+        Kp_angle = 0.2     # Proportional gain for angle control
+        Kd_angle = 0.05    # Derivative gain for angle control
+
+        # Calculate the distance and angle to the line
+        distance = self.calculate_distance(current_position, start, goal)
+        angle = self.calculate_angle(current_position, start, goal, current_angle)
+
+        # Calculate the error and its rate of change for distance control
+        error_distance = distance
+        delta_error_distance = error_distance - self.prev_error_distance
+
+        # Calculate the error and its rate of change for angle control
+        error_angle = angle
+        delta_error_angle = error_angle - self.prev_error_angle
+
+        # PD control to determine linear and angular velocities
+        v = Kp_distance * error_distance + Kd_distance * delta_error_distance
+        w = Kp_angle * error_angle + Kd_angle * delta_error_angle
+
+        # Update the previous errors for the next iteration
+        self.prev_error_distance = error_distance
+        self.prev_error_angle = error_angle
+
+        return v, w
+
+    def calculate_distance(self, current_position, start, goal):
+        # Euclidean distance between the current position and the line formed by start and goal
+        x, y = current_position
+        x1, y1 = start
+        x2, y2 = goal
+
+        distance = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1) / math.sqrt((y2 - y1)**2 + (x2 - x1)**2)
+
+        return distance
+
+    def calculate_angle(self, current_position, start, goal, current_angle):
+        # Calculate the angle between the current position and the line formed by start and goal
+        x, y = current_position
+        x1, y1 = start
+        x2, y2 = goal
+
+        angle_to_line = math.atan2(y2 - y1, x2 - x1)
+        angle_to_position = math.atan2(y - y1, x - x1)
+
+        # Calculate the signed angle difference
+        angle_diff = angle_to_position - angle_to_line
+
+        # Convert angle to the range [-pi, pi]
+        angle_diff = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
+        print("angle_diff",angle_diff)
+
+        return angle_diff - current_angle
     
     def is_close(self, goal):
-        threshold = 0.2
+        threshold = 0.05
         if(abs(goal[0]) < threshold and abs(goal[1]) < threshold):
             return True
         return False
@@ -350,15 +410,17 @@ class RobotController:
           return 0,0
         #get the current point
         point = self.points[0]
-        #get the local coordinates of the point
-        local_point = self.local_coords(point, position, angle)
+        next_point = self.points[1]
         #print("local_point",local_point)
+        """
         #get the goal force
         goal_force = self.VFF_controller(local_point)
         #get the linear and angular velocity
         v, w = self.force_to_vw(goal_force)
+        """
+        v, w = self.pd_controller(point, next_point, position, angle)
         #check if the robot is close to the point
-        if(self.is_close(local_point)):
+        if(self.is_close(self.local_coords(point, position, angle))):
             #remove the point from the list
             self.points.pop(0)
         
@@ -370,7 +432,7 @@ else:
     image_path="map.png"
 image_data=cv2.imread(image_path)
 #create map grid
-map = MapGrid(image_data, 30)
+map = MapGrid(image_data, 20)
 if(not UNIBOTICS):
     #draw the map
     new_image=map.draw_map()
