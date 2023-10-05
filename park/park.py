@@ -1,4 +1,7 @@
-
+UNIBOTICS=True
+if UNIBOTICS:
+    from GUI import GUI
+    from HAL import HAL
 class States:
     SEARCHING=0
     POSITIONING=1
@@ -133,4 +136,16 @@ class RobotController:
         return 0.5,0
     
     
-    
+controller=RobotController()
+while(True):
+    if(UNIBOTICS):
+        raw_sensor_data=(HAL.getFrontLaserData(),HAL.getRightLaserData(),HAL.getBackLaserData())
+        sensor_data=controller.sensor_processing(raw_sensor_data)
+        v,w=controller.step(sensor_data)
+        HAL.set_velocity(v,w)
+        print("state: "+States.to_str(controller.state))
+        print("v: "+str(v)+" w: "+str(w))
+        print("sensor_data: "+str(sensor_data))
+    else:
+        print("UNIBOTICS is not defined")
+        break
