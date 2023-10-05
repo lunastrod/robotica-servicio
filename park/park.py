@@ -10,6 +10,7 @@ class States:
     PARKING3=4
     PARKING4=5
     PARKED=6
+    @staticmethod
     def to_str(state):
         if state==States.SEARCHING:
             return "SEARCHING"
@@ -41,91 +42,82 @@ class RobotController:
         the raw sensor data is a list of 3 elements (front, right, back)
         each element is a list of 180 values (one for each degree)
         the values are the distance in meters
-        the right of a sensor are the values from 0 to 45 degrees
-        the front of a sensor are the values from 46 to 135 degrees
-        the left of a sensor are the values from 136 to 179 degrees
-        we will use the minimum value of each sensor
         """
         RIGHT_END=45
         LEFT_START=136
         sensor_data={}
-        sensor_data["front_left"]=min(raw_sensor_data[0][LEFT_START:])
-        sensor_data["front"]=min(raw_sensor_data[0][RIGHT_END:LEFT_START])
-        sensor_data["front_right"]=min(raw_sensor_data[0][:RIGHT_END])
         sensor_data["right"]=min(raw_sensor_data[1][RIGHT_END:LEFT_START])
-        sensor_data["back_right"]=min(raw_sensor_data[2][:RIGHT_END])
-        sensor_data["back"]=min(raw_sensor_data[2][RIGHT_END:LEFT_START])
-        sensor_data["back_left"]=min(raw_sensor_data[2][LEFT_START:])
-        
+        sensor_data["front"]=min(raw_sensor_data[0])
+        sensor_data["positioning_point"]=raw_sensor_data[2][179]
+        sensor_data["start_correcting_point"]=raw_sensor_data[1][100]
         return sensor_data
 
 
-    def step(self,sensor_data):
+    def step(self,sensor_data,angle):
         """
         execute one step of the state machine
         """
         v,w=0,0
         if self.state==States.SEARCHING:
-            v,w=self.searching(sensor_data)
+            v,w=self.searching(sensor_data,angle)
         elif self.state==States.POSITIONING:
-            v,w=self.positioning(sensor_data)
+            v,w=self.positioning(sensor_data,angle)
         elif self.state==States.PARKING1:
-            v,w=self.parking1(sensor_data)
+            v,w=self.parking1(sensor_data,angle)
         elif self.state==States.PARKING2:
-            v,w=self.parking2(sensor_data)
+            v,w=self.parking2(sensor_data,angle)
         elif self.state==States.PARKING3:
-            v,w=self.parking3(sensor_data)
+            v,w=self.parking3(sensor_data,angle)
         elif self.state==States.PARKING4:
-            v,w=self.parking4(sensor_data)
+            v,w=self.parking4(sensor_data,angle)
         elif self.state==States.PARKED:
             v,w=0,0
         return v,w
-    def searching(self,sensor_data):
+    def searching(self,sensor_data,angle):
         """
         search for a parking spot
         move fordward until right sensor doesnt detect a car
         """
-        if(sensor_data["right"]>4):
+        if(sensor_data["right"]>5):
             self.state=States.POSITIONING
             return 0,0
-        return 0.5,0
-    def positioning(self,sensor_data):
+        return 2,0
+    def positioning(self,sensor_data,angle):
         """
         position the robot in front of the parking spot
         move forward until the back sensor detects a car
         """
-        if(sensor_data["back_left"]<4):
+        if(sensor_data["positioning_point"]<5):
             self.state=States.PARKING1
             return 0,0
-        return 0.5,0
-    def parking1(self,sensor_data):
+        return 1,0
+    def parking1(self,sensor_data,angle):
         """
         first turn
-        turn left until the right sensor detects the gap between the cars
+        turn left until 45 degrees
         """
-        if(sensor_data["right"]>3):
+        if(angle>3.14/4):
             self.state=States.PARKING2
             return 0,0
-        return -0.5,0.5
-    def parking2(self,sensor_data):
+        return -0.5,0.10
+    def parking2(self,sensor_data,angle):
         """
         move backwards
-        move backwards until the back sensor detects a car
         """
-        if(sensor_data["back_right"]<1):
+        if(sensor_data["start_correcting_point"]>5):
             self.state=States.PARKING3
             return 0,0
         return -0.5,0
-    def parking3(self,sensor_data):
+    def parking3(self,sensor_data,angle):
         """
         second turn
-        turn right until the front sensor detects a car
+        turn right until 0 degrees
         """
-        if(sensor_data["front"]<4):
+        if(angle<0.01):
             self.state=States.PARKING4
             return 0,0
-        return -0.5,-0.5
-    def parking4(self,sensor_data):
+        return -0.5,-0.13
+    def parking4(self,sensor_data,angle):
         """
         move forward
         move forward until the front sensor detects a car closer
@@ -139,13 +131,15 @@ class RobotController:
 controller=RobotController()
 while(True):
     if(UNIBOTICS):
-        raw_sensor_data=(HAL.getFrontLaserData(),HAL.getRightLaserData(),HAL.getBackLaserData())
-        sensor_data=controller.sensor_processing(raw_sensor_data)
-        v,w=controller.step(sensor_data)
-        HAL.set_velocity(v,w)
-        print("state: "+States.to_str(controller.state))
-        print("v: "+str(v)+" w: "+str(w))
-        print("sensor_data: "+str(sensor_data))
-    else:
-        print("UNIBOTICS is not defined")
-        break
+        raw_sensor_data=(HAL.getFrontLaserData().values,HAL.getRightLaserData().values,HAL.getBackLaserData().values)
+        #if length if any of the sensor data, continue
+        if(len(raw_sensor_data[0])!=0 and len(raw_sensor_data[1])!=0 and len(raw_sensor_data[2])!=0):
+            sensor_data=controller.sensor_processing(raw_sensor_data)
+            v,w=controller.step(sensor_data,HAL.getPose3d().yaw)
+            HAL.setV(v)
+            HAL.setW(w)
+            print("state: "+States.to_str(controller.state))
+            print("v: "+str(v)+" w: "+str(w))
+            print("sensor_data: "+str(sensor_data))
+            position=HAL.getPose3d().x,HAL.getPose3d().y,HAL.getPose3d().yaw
+            print("position: "+str(position))
