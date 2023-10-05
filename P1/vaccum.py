@@ -1,4 +1,3 @@
-
 UNIBOTICS = False
 if(UNIBOTICS):
     from GUI import GUI
@@ -41,7 +40,7 @@ class MapCell:
 class MapGrid:
     def __init__(self, image_data, grid_size):
         self.grid_size = grid_size
-        self.image_data=self.image_preprocessing(image_data,8)
+        self.image_data=self.image_preprocessing(image_data,10)
         self.width = self.image_data.shape[0]//grid_size
         self.height = self.image_data.shape[1]//grid_size
         self.grid=[["." for x in range(self.height)] for y in range(self.width)]
@@ -63,11 +62,13 @@ class MapGrid:
         return enlarged_obstacles
 
     def __str__(self):
-        text=f"Width: {self.width}, Height: {self.height}\n"
+        text=f"""Width: {self.width}, Height: {self.height}
+"""
         for row in self.grid:
             for cell in row:
                 text += f"{cell} "
-            text += "\n"
+            text += """
+"""
         return text
     
     def draw_map(self):
@@ -294,9 +295,30 @@ class RobotPlanner:
             print(map)
             #time.sleep(0.2)
 
+class PIDController:
+    def __init__(self, Kp, Ki, Kd):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.prev_error = 0
+        self.integral = 0
+
+    def update(self, error, dt):
+        if self.prev_error * error < 0:
+            # Reset integral when the error changes sign (crosses zero)
+            self.integral = 0
+
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt
+        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
+        self.prev_error = error
+        return output
+
 class RobotController:
     def __init__(self, plan):
         self.points = plan
+        self.pid_controller_w = PIDController(Kp=1.5, Ki=0.2, Kd=0.5)  # You can adjust these PID gains
+
 
     def VFF_controller(self, goal):
         #parameters
@@ -311,23 +333,54 @@ class RobotController:
     
     def force_to_vw(self, force):
         maxv = 1.5
-        maxw = 3
+        maxw = 2
         kv = 3
-        kw = 10
+        kw = 2
+        dw = 5
 
         angle = math.atan2(-force[1], force[0])
+        """
         #v=maxv/(1+kv*angle**2)-0.1685
         if(angle > -math.pi/12 and angle < math.pi/12):
-            magnitude = math.sqrt(force[0]*force[0]+force[1]*force[1])
-            v = min(maxv, kv*magnitude)
+            #magnitude = math.sqrt(force[0]*force[0]+force[1]*force[1])
+            #v = min(maxv, kv*magnitude)
+            v=maxv
         else:
             v = 0
         #print("angle",angle)
-        w=max(-maxw, min(maxw, kw*angle**3))
+        
+        #w=max(-maxw, min(maxw, kw*angle**3))
+        threshold = math.pi/15
+        if(angle > -threshold and angle < threshold):
+            w = 0
+        elif(angle > math.pi/4):
+            w = maxw
+        elif(angle < -math.pi/4):
+            w = -maxw
+        elif(angle < 0):
+            w = -maxw/2
+        else:
+            w = maxw/2
+        
+        #pd controller for the angular velocity
+        error = angle
+        w = kw*error + dw*(error-self.error_dw)
+        self.error_dw = error
+        """
+        w=self.pid_controller_w.update(angle, 1/20)
+        magnitude = math.sqrt(force[0]*force[0]+force[1]*force[1])
+        #if the robot is not facing the goal, don't move
+        if(abs(angle) > math.pi/10):
+            v = 0
+        elif(abs(angle) > math.pi/20 or magnitude<0.2):
+            v = maxv/2
+        else:
+            v = maxv
+        
         return v, w
     
     def is_close(self, goal):
-        threshold = 0.2
+        threshold = 0.1
         if(abs(goal[0]) < threshold and abs(goal[1]) < threshold):
             return True
         return False
@@ -364,13 +417,14 @@ class RobotController:
         
         return v, w
         
+        
 if(UNIBOTICS):
     image_path='RoboticsAcademy/exercises/static/exercises/vacuum_cleaner_loc/resources/images/mapgrannyannie.png'
 else:
     image_path="map.png"
 image_data=cv2.imread(image_path)
 #create map grid
-map = MapGrid(image_data, 30)
+map = MapGrid(image_data, 27)
 if(not UNIBOTICS):
     #draw the map
     new_image=map.draw_map()
@@ -389,11 +443,13 @@ for point in plan:
     real_plan.append(map.grid_to_real_coords(point))
     print(round(real_plan[-1][0],2),round(real_plan[-1][1],2))
 print("plan calculated")
+new_image=map.draw_plan(real_plan)
 if(not UNIBOTICS):
-    new_image=map.draw_plan(real_plan)
     cv2.imshow("plan",new_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+else:
+    GUI.showNumpy(new_image)
 #create the controller
 robot_controller = RobotController(real_plan)
 
