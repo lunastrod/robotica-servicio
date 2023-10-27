@@ -30,15 +30,42 @@ def detect_faces(image):
     """
     return len(faces) > 0
 
-#funtion to calculate the distance (x,y) between two gps points
-def distance(lat1,lon1,lat2,lon2):
-    R = 6373.0
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = (math.sin(dlat/2))**2 + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon/2))**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    distance = R * c
-    print(distance)
+from math import radians, cos, degrees
+
+
+def gps_to_cartesian(origin, destination):
+    # Radius of the Earth in meters
+    R = 6371000.0
+    # Convert latitude and longitude from degrees to radians
+    origin_lat, origin_lon = map(radians, origin)
+    dest_lat, dest_lon = map(radians, destination)
+    # Calculate differences in coordinates
+    dlat = dest_lat - origin_lat
+    dlon = dest_lon - origin_lon
+    # Linear conversion (for short distances)
+    x = R * dlon * cos(origin_lat)
+    y = R * dlat
+    return x, y
+
+def cartesian_to_gps(origin, destination):
+    # Radius of the Earth in meters
+    R = 6371000.0
+    # Convert latitude and longitude from degrees to radians
+    origin_lat, origin_lon = map(radians, origin)
+    # Linear conversion (for short distances)
+    lat = destination[1] / R + origin_lat
+    lon = destination[0] / (R * cos(origin_lat)) + origin_lon
+    # Convert back to degrees
+    lat, lon = map(degrees, [lat, lon])
+    return lat, lon
+
+def cartesian_to_local(point):
+    return -point[0],-point[1]
+
+def local_to_cartesian(point):
+    return -point[0],-point[1]
+
+
     
 
 
@@ -58,11 +85,31 @@ for i in range(15,1000):
 turtle.getscreen()._root.mainloop()
 """
 
+"""
+from GUI import GUI
+from HAL import HAL
+# Enter sequential code!
+while True:
+    GUI.showImage(HAL.get_ventral_image())
+    print(HAL.get_landed_state(),HAL.get_position())
+    if(HAL.get_landed_state()<=1):#take off if landed
+      print("takeoff")
+      HAL.takeoff(5)
+    else:#move if flying
+      print("moving")
+      HAL.set_cmd_pos(40, -30, 5, 0)
+"""
+
 t=time.time()
 for i in range(20):
     print("Faces detected",detect_faces(image))
 t=time.time()-t
 print("Time ",t,"s")
 
-print(distance(40.27978611111111,-3.817161111111111,40.280055555555556,-3.817638888888889))
+origin=(40.27978611111111,-3.817161111111111)
+destin=(40.280055555555556,-3.817638888888889)
+#      (40.27951631462933, -3.8166895810188857)
+
+print(cartesian_to_local(gps_to_cartesian(origin,destin)))
+print(cartesian_to_local(gps_to_cartesian(origin,cartesian_to_gps(origin,(-40,30)))))
 
