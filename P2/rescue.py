@@ -4,33 +4,33 @@ if(UNIBOTICS):
     from HAL import HAL
 #https://omes-va.com/deteccion-de-rostros-con-haar-cascades-python-opencv/
 import cv2
+from math import radians, cos, degrees
 import time
-import math
 
-image = cv2.imread('f3.jpeg')
-image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 faceClassif = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 def detect_faces(image):
-    """
-    for angle in range(0, 360, 15):
-    height, width = image.shape[:2]
-    center = (width // 2, height // 2)
-    rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated_image = cv2.warpAffine(image, rotation_matrix, (width, height))
-    """
-    faces = faceClassif.detectMultiScale(image,scaleFactor=1.1,minNeighbors=5,minSize=(1,1),maxSize=(500,500))
-    """
-    for (x,y,w,h) in faces:
-        #cv2.rectangle(image,(x,y),(x+w,y+h),(0,255,0),2)
-        cv2.imshow("Rotated Image", rotated_image)
-        cv2.waitKey(0)
-        #cv2.destroyAllWindows()
-        #time.sleep(1)
-    """
-    return len(faces) > 0
+    image_out=image.copy()
+    image_processing=image.copy()
+    image_processing=cv2.cvtColor(image_out, cv2.COLOR_BGR2GRAY)
+    is_face=False
+    ROTATIONS=8
+    rot=[360/ROTATIONS]*ROTATIONS
+    for angle in rot:
+        height, width = image_processing.shape[:2]
+        center = (width // 2, height // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        image_processing = cv2.warpAffine(image_processing, rotation_matrix, (width, height))
+        image_out = cv2.warpAffine(image_out, rotation_matrix, (width, height))
 
-from math import radians, cos, degrees
+        faces=faceClassif.detectMultiScale(image_processing,scaleFactor=1.1,minNeighbors=5,minSize=(10,10),maxSize=(300,300))
+        if(len(faces)>0):
+            is_face=True
+        for (x,y,w,h) in faces:
+            cv2.rectangle(image_out,(x,y),(x+w,y+h),(0,255,0),2)
+    return image_out,is_face
+
+
 
 
 def gps_to_cartesian(origin, destination):
@@ -65,8 +65,30 @@ def cartesian_to_local(point):
 def local_to_cartesian(point):
     return -point[0],-point[1]
 
+while True:
+    if(UNIBOTICS):
+        image=HAL.get_ventral_image()
+        GUI.showLeftImage(image)
+    else:
+        image=cv2.imread('f4.png')
+    image,faces=detect_faces(image)
+    print("faces:",faces)
 
-    
+    if(UNIBOTICS):
+        GUI.showImage(image)
+        print(HAL.get_landed_state())
+        print(HAL.get_position())
+        if(HAL.get_landed_state()<=1):
+            print("takeoff")
+            HAL.takeoff(3)
+        else:
+            HAL.set_cmd_pos(40, -33, 3, 0)
+    else:
+        cv2.imshow("image", image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        time.sleep(1)
+        
 
 
 """
@@ -88,18 +110,18 @@ turtle.getscreen()._root.mainloop()
 """
 from GUI import GUI
 from HAL import HAL
-# Enter sequential code!
+print("start")
 while True:
     GUI.showImage(HAL.get_ventral_image())
-    print(HAL.get_landed_state(),HAL.get_position())
+    print(HAL.get_landed_state())
+    print(HAL.get_position())
     if(HAL.get_landed_state()<=1):#take off if landed
       print("takeoff")
-      HAL.takeoff(5)
+      HAL.takeoff(3)
     else:#move if flying
-      print("moving")
-      HAL.set_cmd_pos(40, -30, 5, 0)
+      HAL.set_cmd_pos(40, -30, 3, 0)
 """
-
+"""
 t=time.time()
 for i in range(20):
     print("Faces detected",detect_faces(image))
@@ -112,4 +134,5 @@ destin=(40.280055555555556,-3.817638888888889)
 
 print(cartesian_to_local(gps_to_cartesian(origin,destin)))
 print(cartesian_to_local(gps_to_cartesian(origin,cartesian_to_gps(origin,(-40,30)))))
+"""
 
