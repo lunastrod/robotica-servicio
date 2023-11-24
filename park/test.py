@@ -23,7 +23,7 @@ def calculate_main_direction(lidar_data):
 lidar_data = []
 for i in range(len(data)):
     if(data[i]==inf):
-        data[i]=5
+        #data[i]=5
         continue
     if(i<0 or i>180):
         continue

@@ -2,23 +2,40 @@ UNIBOTICS=True
 if UNIBOTICS:
     from GUI import GUI
     from HAL import HAL
+import numpy as np
 
 states = [
-    #move to the right until close to the cars
+    #turn right until close to the cars
     {"ID":0,    "NAME":"GETTING_CLOSER",   "VW":(2,-0.2), "CONDITION":lambda sensor_data,angle: sensor_data["right"]<1 or angle<-3.14/5},
     #turn left until parallel to the cars
-    {"ID":1,    "NAME":"CORRECTING",       "VW":(1,0.3),  "CONDITION":lambda sensor_data,angle: angle>=0},
+    {"ID":1,    "NAME":"CORRECTING",       "VW":(2,0.3),  "CONDITION":lambda sensor_data,angle: angle>=-0.04},
     #move fordwards until you find a parking spot
-    {"ID":2,    "NAME":"SEARCHING",        "VW":(1,0),    "CONDITION":lambda sensor_data,angle: sensor_data["positioning_point"]>5},
-    #move fordwards until in the right position
+    {"ID":2,    "NAME":"SEARCHING",        "VW":(2,0),    "CONDITION":lambda sensor_data,angle: sensor_data["right"]>5 and sensor_data["positioning_point"]>5},
+    #move fordwards until your back wheel is close to the end of the car
     {"ID":3,    "NAME":"POSITIONING",      "VW":(1,0),    "CONDITION":lambda sensor_data,angle: sensor_data["positioning_point"]<5},
-    #
-    {"ID":4,    "NAME":"BACKWARDS",        "VW":(-1,0.2), "CONDITION":lambda sensor_data,angle: angle>3.14/4},
-    #
-    {"ID":5,    "NAME":"CORRECTING",      "VW":(-1,-0.2),"CONDITION":lambda sensor_data,angle: angle<0},
+    #move backwards turning right until your angle is 36 degrees
+    {"ID":4,    "NAME":"BACKWARDS",        "VW":(-1,2),   "CONDITION":lambda sensor_data,angle: angle>3.14/5},
+    #move backwards turning left until you're about to bump the back car
+    {"ID":5,    "NAME":"CORRECTING",       "VW":(-1,-2),  "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["back"]<0.6},
+    #move fordwards turning left until you're about to bump the front car
+    {"ID":6,    "NAME":"FORDWARDS",        "VW":(1,-2),   "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["front"]<0.6},
     #STOP
-    {"ID":6,    "NAME":"STOP",             "VW":(0,0),    "CONDITION":lambda sensor_data,angle: False},
+    {"ID":7,    "NAME":"STOP",             "VW":(0,0),    "CONDITION":lambda sensor_data,angle: False},
 ]
+
+def detect_segments(lidar_data, threshold=0.1):
+    # Find changes in slope
+    slopes = np.gradient(lidar_data)
+    
+    # Identify segment boundaries based on slope changes
+    segment_boundaries = np.where(np.abs(slopes) > threshold)[0]
+
+    # Split the lidar data into segments
+    segments = np.split(lidar_data, segment_boundaries + 1)
+    
+    print(segments)
+
+    return segments
 
 class RobotController:
     """
@@ -38,8 +55,11 @@ class RobotController:
         sensor_data={}
         sensor_data["right"]=min(raw_sensor_data[1][RIGHT_END:LEFT_START])
         sensor_data["front"]=min(raw_sensor_data[0])
-        sensor_data["positioning_point"]=raw_sensor_data[2][179]
-        sensor_data["start_correcting_point"]=raw_sensor_data[1][100]
+        sensor_data["back"]=min(raw_sensor_data[2])
+        sensor_data["positioning_point"]=raw_sensor_data[2][165]
+        #sensor_data["start_correcting_point"]=raw_sensor_data[1][100]
+        detect_segments(raw_sensor_data[1])
+        
         return sensor_data
     
     def step(self,sensor_data,angle):
