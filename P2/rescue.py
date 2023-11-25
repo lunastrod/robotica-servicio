@@ -4,25 +4,30 @@ if(UNIBOTICS):
     from HAL import HAL
 #https://omes-va.com/deteccion-de-rostros-con-haar-cascades-python-opencv/
 import cv2
-from math import radians, cos, degrees
+from math import radians, cos, sin, degrees
 import time
+import numpy as np
 
 faceClassif = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+def rotate_image(img, angle):
+    size_reverse = np.array(img.shape[1::-1]) # swap x with y
+    M = cv2.getRotationMatrix2D(tuple(size_reverse / 2.), angle, 1.)
+    MM = np.absolute(M[:,:2])
+    size_new = MM @ size_reverse
+    M[:,-1] += (size_new - size_reverse) / 2.
+    return cv2.warpAffine(img, M, tuple(size_new.astype(int)))
 
 def detect_faces(image):
     image_out=image.copy()
     image_processing=image.copy()
     image_processing=cv2.cvtColor(image_out, cv2.COLOR_BGR2GRAY)
     is_face=False
-    ROTATIONS=8
+    ROTATIONS=4
     rot=[360/ROTATIONS]*ROTATIONS
     for angle in rot:
-        height, width = image_processing.shape[:2]
-        center = (width // 2, height // 2)
-        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image_processing = cv2.warpAffine(image_processing, rotation_matrix, (width, height))
-        image_out = cv2.warpAffine(image_out, rotation_matrix, (width, height))
-
+        image_processing = rotate_image(image_processing, angle)
+        image_out = rotate_image(image_out, angle)
         faces=faceClassif.detectMultiScale(image_processing,scaleFactor=1.1,minNeighbors=5,minSize=(10,10),maxSize=(300,300))
         if(len(faces)>0):
             is_face=True
@@ -65,31 +70,65 @@ def cartesian_to_local(point):
 def local_to_cartesian(point):
     return -point[0],-point[1]
 
+
+
+class SearchPattern:
+    def __init__(self):
+        self.vx=1
+        self.w=1
+        self.time_straight=0
+        self.dtime_straight=0.007
+        self.time_turn=0.1
+        self.progress=250
+    def step(self):
+        self.time_straight+=self.dtime_straight
+        self.progress-=1
+        if(self.progress<=0):
+            return False,False,False,False,False
+        return self.time_straight,self.vx,self.time_turn,self.w,self.progress
+    
+#CONSTANTS:
+SAFETY_BOAT_POSITION=(40.27978611111111,-3.817161111111111)
+SURVIVORS_POSITION=(40.280055555555556,-3.817638888888889)
+LOCAL_SURVIVORS_POSITION=cartesian_to_local(gps_to_cartesian(SAFETY_BOAT_POSITION,SURVIVORS_POSITION))
+print("LOCAL_SURVIVORS_POSITION",LOCAL_SURVIVORS_POSITION)
+HAL.takeoff(3)
+HAL.set_cmd_pos(LOCAL_SURVIVORS_POSITION[0],LOCAL_SURVIVORS_POSITION[1], 3, 0)
+spiral_control=SearchPattern()
+time.sleep(13)
+survivors=[]
 while True:
-    if(UNIBOTICS):
-        image=HAL.get_ventral_image()
-        GUI.showLeftImage(image)
-    else:
-        image=cv2.imread('f4.png')
+    image=HAL.get_ventral_image()
+    GUI.showLeftImage(image)
     image,faces=detect_faces(image)
-    print("faces:",faces)
-
-    if(UNIBOTICS):
-        GUI.showImage(image)
-        print(HAL.get_landed_state())
-        print(HAL.get_position())
-        if(HAL.get_landed_state()<=1):
-            print("takeoff")
-            HAL.takeoff(3)
-        else:
-            HAL.set_cmd_pos(40, -33, 3, 0)
-    else:
-        cv2.imshow("image", image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        time.sleep(1)
+    #print("faces:",faces)
+    GUI.showImage(image)
+    ts,vx,tt,w,progress=spiral_control.step()
+    if(faces):
+        p=HAL.get_position()
+        p=cartesian_to_gps(SAFETY_BOAT_POSITION,local_to_cartesian((p[0],p[1])))
+        #if too similar to any other survivor, then ignore
+        already_in_list=False
+        for s in survivors:
+            if((abs(p[0]-s[0]) + abs(p[1]-s[1]))<0.00005):
+                already_in_list=True
+        if(not already_in_list):
+            survivors.append(p)
+            print("Found survivor at:",p,"battery left",100*progress/250,"%")
         
-
+    #print(progress)
+    if(ts==False):
+        print("battery left: 0 %, landing")
+        print("survivors:",survivors)
+        HAL.set_cmd_pos(0, 0, 3, 0)
+        time.sleep(13)
+        HAL.land()
+    HAL.set_cmd_mix(vx, 0, 3, 0)
+    time.sleep(ts)
+    HAL.set_cmd_mix(vx, 0, 3, -w)
+    time.sleep(tt)
+    #print(ts,"s",vx,"m/s",tt,"s",w,"rad/s")
+        
 
 """
 import turtle
@@ -106,6 +145,31 @@ for i in range(15,1000):
     t.goto(x,y)
 turtle.getscreen()._root.mainloop()
 """
+"""
+class SearchPattern:
+    def __init__(self,origin=(0,0),radius=0.01,size=20,step_size=10):
+        self.origin=origin
+        self.radius=radius
+        self.size=size
+        self.step_size=step_size
+        self.progress=0
+        self.current=origin
+    def step(self):
+        angle =3.141592/self.size*self.progress
+        x = cos(angle)*self.progress*self.radius
+        y = sin(angle)*self.progress*self.radius
+        self.current=(x+self.origin[0],y+self.origin[1])
+        self.progress+=self.step_size
+        return self.current
+    def spiral(self,position,threshold=0.1):
+        #if position is similar to self.current, then step and return self.current
+        #else return self.current
+        if(abs(position[0]-self.current[0])<threshold and abs(position[1]-self.current[1])<threshold):
+            return self.step()
+        else:
+            return self.current
+"""
+
 
 """
 from GUI import GUI
