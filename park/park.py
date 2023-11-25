@@ -2,6 +2,91 @@ UNIBOTICS=True
 if UNIBOTICS:
     from GUI import GUI
     from HAL import HAL
+import numpy as np
+
+states = [
+    #turn right until close to the cars
+    {"ID":0,    "NAME":"GETTING_CLOSER",   "VW":(2,-0.2), "CONDITION":lambda sensor_data,angle: sensor_data["right"]<1 or angle<-3.14/5},
+    #turn left until parallel to the cars
+    {"ID":1,    "NAME":"CORRECTING",       "VW":(2,0.3),  "CONDITION":lambda sensor_data,angle: angle>=-0.04},
+    #move fordwards until you find a parking spot
+    {"ID":2,    "NAME":"SEARCHING",        "VW":(2,0),    "CONDITION":lambda sensor_data,angle: sensor_data["right"]>5 and sensor_data["positioning_point"]>5},
+    #move fordwards until your back wheel is close to the end of the car
+    {"ID":3,    "NAME":"POSITIONING",      "VW":(1,0),    "CONDITION":lambda sensor_data,angle: sensor_data["positioning_point"]<5},
+    #move backwards turning right until your angle is 36 degrees
+    {"ID":4,    "NAME":"BACKWARDS",        "VW":(-1,2),   "CONDITION":lambda sensor_data,angle: angle>3.14/5},
+    #move backwards turning left until you're about to bump the back car
+    {"ID":5,    "NAME":"CORRECTING",       "VW":(-1,-2),  "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["back"]<0.6},
+    #move fordwards turning left until you're about to bump the front car
+    {"ID":6,    "NAME":"FORDWARDS",        "VW":(1,-2),   "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["front"]<0.6},
+    #STOP
+    {"ID":7,    "NAME":"STOP",             "VW":(0,0),    "CONDITION":lambda sensor_data,angle: False},
+]
+
+def detect_segments(lidar_data, threshold=0.1):
+    # Find changes in slope
+    slopes = np.gradient(lidar_data)
+    
+    # Identify segment boundaries based on slope changes
+    segment_boundaries = np.where(np.abs(slopes) > threshold)[0]
+
+    # Split the lidar data into segments
+    segments = np.split(lidar_data, segment_boundaries + 1)
+    
+    print(segments)
+
+    return segments
+
+class RobotController:
+    """
+    Class to control the robot
+    """
+    def __init__(self):
+        self.state=states[0]
+    def sensor_processing(self,raw_sensor_data):
+        """
+        process the raw sensor data and return a dictionary with the relevant data
+        the raw sensor data is a list of 3 elements (front, right, back)
+        each element is a list of 180 values (one for each degree)
+        the values are the distance in meters
+        """
+        RIGHT_END=45
+        LEFT_START=136
+        sensor_data={}
+        sensor_data["right"]=min(raw_sensor_data[1][RIGHT_END:LEFT_START])
+        sensor_data["front"]=min(raw_sensor_data[0])
+        sensor_data["back"]=min(raw_sensor_data[2])
+        sensor_data["positioning_point"]=raw_sensor_data[2][165]
+        #sensor_data["start_correcting_point"]=raw_sensor_data[1][100]
+        detect_segments(raw_sensor_data[1])
+        
+        return sensor_data
+    
+    def step(self,sensor_data,angle):
+        """
+        execute one step of the state machine
+        """
+        if(self.state["CONDITION"](sensor_data,angle)):
+            self.state=states[self.state["ID"]+1]
+        return self.state["VW"]
+
+
+controller=RobotController()
+while(True):
+    if(UNIBOTICS):
+        raw_sensor_data=(HAL.getFrontLaserData().values,HAL.getRightLaserData().values,HAL.getBackLaserData().values)
+        #if length if any of the sensor data, continue
+        if(len(raw_sensor_data[0])!=0 and len(raw_sensor_data[1])!=0 and len(raw_sensor_data[2])!=0):
+            sensor_data=controller.sensor_processing(raw_sensor_data)
+            v,w=controller.step(sensor_data,HAL.getPose3d().yaw)
+            HAL.setV(v)
+            HAL.setW(w)
+            print("state: "+controller.state["NAME"])
+            print("v: "+str(v)+" w: "+str(w))
+            print("sensor_data: "+str(sensor_data))
+            position=HAL.getPose3d().x,HAL.getPose3d().y,HAL.getPose3d().yaw
+            print("position: "+str(position))
+
 class States:
     SEARCHING=0
     POSITIONING=1
@@ -126,20 +211,5 @@ class RobotController:
             self.state=States.PARKED
             return 0,0
         return 0.5,0
+
     
-    
-controller=RobotController()
-while(True):
-    if(UNIBOTICS):
-        raw_sensor_data=(HAL.getFrontLaserData().values,HAL.getRightLaserData().values,HAL.getBackLaserData().values)
-        #if length if any of the sensor data, continue
-        if(len(raw_sensor_data[0])!=0 and len(raw_sensor_data[1])!=0 and len(raw_sensor_data[2])!=0):
-            sensor_data=controller.sensor_processing(raw_sensor_data)
-            v,w=controller.step(sensor_data,HAL.getPose3d().yaw)
-            HAL.setV(v)
-            HAL.setW(w)
-            print("state: "+States.to_str(controller.state))
-            print("v: "+str(v)+" w: "+str(w))
-            print("sensor_data: "+str(sensor_data))
-            position=HAL.getPose3d().x,HAL.getPose3d().y,HAL.getPose3d().yaw
-            print("position: "+str(position))

@@ -95,40 +95,129 @@ print("LOCAL_SURVIVORS_POSITION",LOCAL_SURVIVORS_POSITION)
 HAL.takeoff(3)
 HAL.set_cmd_pos(LOCAL_SURVIVORS_POSITION[0],LOCAL_SURVIVORS_POSITION[1], 3, 0)
 spiral_control=SearchPattern()
-time.sleep(13)
+time.sleep(10)
 survivors=[]
 while True:
     image=HAL.get_ventral_image()
     GUI.showLeftImage(image)
     image,faces=detect_faces(image)
-    #print("faces:",faces)
+    print("faces:",faces)
     GUI.showImage(image)
-    ts,vx,tt,w,progress=spiral_control.step()
     if(faces):
         p=HAL.get_position()
         p=cartesian_to_gps(SAFETY_BOAT_POSITION,local_to_cartesian((p[0],p[1])))
         #if too similar to any other survivor, then ignore
-        already_in_list=False
         for s in survivors:
-            if((abs(p[0]-s[0]) + abs(p[1]-s[1]))<0.00005):
-                already_in_list=True
-        if(not already_in_list):
+            if(abs(p[0]-s[0])<0.00001 + abs(p[1]-s[1])<0.00001):
+                break
+        else:
             survivors.append(p)
-            print("Found survivor at:",p,"battery left",100*progress/250,"%")
         
-    #print(progress)
+
+    ts,vx,tt,w,progress=spiral_control.step()
+    print("progress:",progress)
     if(ts==False):
-        print("battery left: 0 %, landing")
         print("survivors:",survivors)
         HAL.set_cmd_pos(0, 0, 3, 0)
-        time.sleep(13)
+        time.sleep(10)
         HAL.land()
     HAL.set_cmd_mix(vx, 0, 3, 0)
     time.sleep(ts)
-    HAL.set_cmd_mix(vx, 0, 3, -w)
+    HAL.set_cmd_mix(vx, 0, 3, w)
     time.sleep(tt)
-    #print(ts,"s",vx,"m/s",tt,"s",w,"rad/s")
-        
+    print(ts,"s",vx,"m/s",tt,"s",w,"rad/s")
+
+    
+
+#spiral search pattern from origin until size
+"""
+import turtle
+import math
+t = turtle.Pen()
+t.speed(0)
+t.width(50)
+t.color("blue")
+radius = 1.25
+for i in range(15,1000):
+    angle =3.141592/20*i
+    x = math.cos(angle)*i*radius
+    y = math.sin(angle)*i*radius
+    t.goto(x,y)
+turtle.getscreen()._root.mainloop()
+"""
+"""
+class SearchPattern:
+    def __init__(self,origin=(0,0),radius=0.01,size=20,step_size=10):
+        self.origin=origin
+        self.radius=radius
+        self.size=size
+        self.step_size=step_size
+        self.progress=0
+        self.current=origin
+    def step(self):
+        angle =3.141592/self.size*self.progress
+        x = cos(angle)*self.progress*self.radius
+        y = sin(angle)*self.progress*self.radius
+        self.current=(x+self.origin[0],y+self.origin[1])
+        self.progress+=self.step_size
+        return self.current
+    def spiral(self,position,threshold=0.1):
+        #if position is similar to self.current, then step and return self.current
+        #else return self.current
+        if(abs(position[0]-self.current[0])<threshold and abs(position[1]-self.current[1])<threshold):
+            return self.step()
+        else:
+            return self.current
+"""
+"""
+vx=1
+w=1
+time_straight=0
+dtime_straight=0.007
+time_turn=0.1
+HAL.takeoff(3)
+HAL.set_cmd_pos(40, -30, 3, 0)
+time.sleep(10)
+while True:
+    HAL.set_cmd_mix(vx, 0, 3, 0)
+    time.sleep(time_straight)
+    HAL.set_cmd_mix(vx, 0, 3, w)
+    time.sleep(time_turn)
+    time_straight+=dtime_straight
+    print(time_straight,"s",vx,"m/s",time_turn,"s",w,"rad/s")
+    
+    
+    GUI.showImage(HAL.get_ventral_image())
+    GUI.showLeftImage(HAL.get_frontal_image())
+"""
+
+"""
+#INITIALIZE:
+spiral_control=SearchPattern(origin=LOCAL_SURVIVORS_POSITION)
+while True:
+    image=HAL.get_ventral_image()
+    GUI.showLeftImage(image)
+    image,faces=detect_faces(image)
+    print("faces:",faces)
+
+    if(UNIBOTICS):
+        GUI.showImage(image)
+        print(HAL.get_landed_state())
+        print(HAL.get_position())
+        if(HAL.get_landed_state()<=1):
+            print("takeoff")
+            HAL.takeoff(3)
+        else:
+            x,y,z=HAL.get_position()
+            x,y=spiral_control.spiral((x,y))
+            HAL.set_cmd_pos(x, y, 3, 0)
+    else:
+        cv2.imshow("image", image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        time.sleep(1)
+
+"""
 
 """
 import turtle
