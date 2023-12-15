@@ -6,23 +6,28 @@ if(UNIBOTICS):
 import cv2
 from math import radians, cos, sin, degrees
 import time
+import numpy as np
 
 faceClassif = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+def rotate_image(img, angle):
+    size_reverse = np.array(img.shape[1::-1]) # swap x with y
+    M = cv2.getRotationMatrix2D(tuple(size_reverse / 2.), angle, 1.)
+    MM = np.absolute(M[:,:2])
+    size_new = MM @ size_reverse
+    M[:,-1] += (size_new - size_reverse) / 2.
+    return cv2.warpAffine(img, M, tuple(size_new.astype(int)))
 
 def detect_faces(image):
     image_out=image.copy()
     image_processing=image.copy()
     image_processing=cv2.cvtColor(image_out, cv2.COLOR_BGR2GRAY)
     is_face=False
-    ROTATIONS=8
+    ROTATIONS=4
     rot=[360/ROTATIONS]*ROTATIONS
     for angle in rot:
-        height, width = image_processing.shape[:2]
-        center = (width // 2, height // 2)
-        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image_processing = cv2.warpAffine(image_processing, rotation_matrix, (width, height))
-        image_out = cv2.warpAffine(image_out, rotation_matrix, (width, height))
-
+        image_processing = rotate_image(image_processing, angle)
+        image_out = rotate_image(image_out, angle)
         faces=faceClassif.detectMultiScale(image_processing,scaleFactor=1.1,minNeighbors=5,minSize=(10,10),maxSize=(300,300))
         if(len(faces)>0):
             is_face=True
@@ -190,11 +195,8 @@ while True:
 #INITIALIZE:
 spiral_control=SearchPattern(origin=LOCAL_SURVIVORS_POSITION)
 while True:
-    if(UNIBOTICS):
-        image=HAL.get_ventral_image()
-        GUI.showLeftImage(image)
-    else:
-        image=cv2.imread('f4.png')
+    image=HAL.get_ventral_image()
+    GUI.showLeftImage(image)
     image,faces=detect_faces(image)
     print("faces:",faces)
 
@@ -232,6 +234,31 @@ for i in range(15,1000):
     t.goto(x,y)
 turtle.getscreen()._root.mainloop()
 """
+"""
+class SearchPattern:
+    def __init__(self,origin=(0,0),radius=0.01,size=20,step_size=10):
+        self.origin=origin
+        self.radius=radius
+        self.size=size
+        self.step_size=step_size
+        self.progress=0
+        self.current=origin
+    def step(self):
+        angle =3.141592/self.size*self.progress
+        x = cos(angle)*self.progress*self.radius
+        y = sin(angle)*self.progress*self.radius
+        self.current=(x+self.origin[0],y+self.origin[1])
+        self.progress+=self.step_size
+        return self.current
+    def spiral(self,position,threshold=0.1):
+        #if position is similar to self.current, then step and return self.current
+        #else return self.current
+        if(abs(position[0]-self.current[0])<threshold and abs(position[1]-self.current[1])<threshold):
+            return self.step()
+        else:
+            return self.current
+"""
+
 
 """
 from GUI import GUI

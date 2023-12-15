@@ -9,19 +9,27 @@ states = [
     {"ID":0,    "NAME":"GETTING_CLOSER",   "VW":(2,-0.2), "CONDITION":lambda sensor_data,angle: sensor_data["right"]<1 or angle<-3.14/5},
     #turn left until parallel to the cars
     {"ID":1,    "NAME":"CORRECTING",       "VW":(2,0.3),  "CONDITION":lambda sensor_data,angle: angle>=-0.04},
-    #move fordwards until you find a parking spot
+    #move forwards until you find a parking spot
     {"ID":2,    "NAME":"SEARCHING",        "VW":(2,0),    "CONDITION":lambda sensor_data,angle: sensor_data["right"]>5 and sensor_data["positioning_point"]>5},
-    #move fordwards until your back wheel is close to the end of the car
+    #move forwards until your back wheel is close to the end of the car
     {"ID":3,    "NAME":"POSITIONING",      "VW":(1,0),    "CONDITION":lambda sensor_data,angle: sensor_data["positioning_point"]<5},
     #move backwards turning right until your angle is 36 degrees
     {"ID":4,    "NAME":"BACKWARDS",        "VW":(-1,2),   "CONDITION":lambda sensor_data,angle: angle>3.14/5},
     #move backwards turning left until you're about to bump the back car
     {"ID":5,    "NAME":"CORRECTING",       "VW":(-1,-2),  "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["back"]<0.6},
-    #move fordwards turning left until you're about to bump the front car
-    {"ID":6,    "NAME":"FORDWARDS",        "VW":(1,-2),   "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["front"]<0.6},
+    #move forwards turning left until you're about to bump the front car
+    {"ID":6,    "NAME":"FORWARDS",        "VW":(1,-2),   "CONDITION":lambda sensor_data,angle: angle<0 or sensor_data["front"]<0.6},
     #STOP
     {"ID":7,    "NAME":"STOP",             "VW":(0,0),    "CONDITION":lambda sensor_data,angle: False},
 ]
+
+def calculate_main_direction(lidar_data):
+    # Agregar una columna de unos para el término independiente
+    X = np.column_stack((np.ones_like(lidar_data[:, 0]), lidar_data[:, 0]))
+    # Calcular los coeficientes de regresión usando la pseudo-inversa de X
+    coefficients = np.linalg.pinv(X) @ lidar_data[:, 1]
+    print('Coeficientes de regresión: {}'.format(coefficients))
+    return coefficients
 
 def detect_segments(lidar_data, threshold=0.1):
     # Find changes in slope
@@ -36,6 +44,9 @@ def detect_segments(lidar_data, threshold=0.1):
     print(segments)
 
     return segments
+
+def polar_to_cartesian(r, theta):
+    return r * np.cos(theta), r * np.sin(theta)
 
 class RobotController:
     """
@@ -87,129 +98,42 @@ while(True):
             position=HAL.getPose3d().x,HAL.getPose3d().y,HAL.getPose3d().yaw
             print("position: "+str(position))
 
-class States:
-    SEARCHING=0
-    POSITIONING=1
-    PARKING1=2
-    PARKING2=3
-    PARKING3=4
-    PARKING4=5
-    PARKED=6
-    @staticmethod
-    def to_str(state):
-        if state==States.SEARCHING:
-            return "SEARCHING"
-        elif state==States.POSITIONING:
-            return "POSITIONING"
-        elif state==States.PARKING1:
-            return "PARKING1"
-        elif state==States.PARKING2:
-            return "PARKING2"
-        elif state==States.PARKING3:
-            return "PARKING3"
-        elif state==States.PARKING4:
-            return "PARKING4"
-        elif state==States.PARKED:
-            return "PARKED"
-        else:
-            return "UNKNOWN"
+#==============================================================================
 
-class RobotController:
-    """
-    Class to control the robot
-    """
-    def __init__(self):
-        self.state=States.SEARCHING
+import matplotlib.pyplot as plt
 
-    def sensor_processing(self,raw_sensor_data):
-        """
-        process the raw sensor data and return a dictionary with the relevant data
-        the raw sensor data is a list of 3 elements (front, right, back)
-        each element is a list of 180 values (one for each degree)
-        the values are the distance in meters
-        """
-        RIGHT_END=45
-        LEFT_START=136
-        sensor_data={}
-        sensor_data["right"]=min(raw_sensor_data[1][RIGHT_END:LEFT_START])
-        sensor_data["front"]=min(raw_sensor_data[0])
-        sensor_data["positioning_point"]=raw_sensor_data[2][179]
-        sensor_data["start_correcting_point"]=raw_sensor_data[1][100]
-        return sensor_data
+inf = float('inf')
+
+data=[inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,inf ,3.2 ,3.1 ,3.0 ,2.8 ,2.7 ,2.6 ,2.5 ,2.5 ,2.5 ,2.4 ,2.4 ,2.3 ,2.3 ,2.3 ,2.3 ,2.2 ,2.2 ,2.2 ,2.1 ,2.1 ,2.1 ,2.1 ,2.1 ,2.1 ,2.0 ,2.0 ,2.0 ,2.0 ,2.0 ,2.0 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.9 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.7 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.8 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,1.9 ,2.0 ,1.9 ,1.9 ,1.9 ,2.0 ,2.0 ,2.0 ,2.1 ,2.1 ,2.1 ,2.1 ,2.2 ,2.2 ,2.2 ,2.3 ,2.3 ,2.4 ,2.4 ,2.5 ,2.5 ,2.6 ,2.6 ,inf ,inf ,inf ,4.6 ,4.6 ,4.4 ,4.4 ,4.3 ,4.2 ,4.2 ,4.1 ,4.1 ,4.0 ,4.0 ,4.0 ,4.0 ,4.0 ,3.9 ,3.9 ,3.9 ,3.9 ,4.0 ,4.1 ,4.3 ,4.3 ,4.4 ,4.7 ,5.3 ,5.7 ,6.1 ,6.7 ,7.2 ,10.0 ,10.0 ,10.1 ,10.4 ,12.8 ,21.6 ,21.6 ,21.7 ,27.6 ,inf ,inf]
+
+lidar_data = []
+for i in range(len(data)):
+    if(data[i]==inf):
+        #data[i]=5
+        continue
+    if(i<0 or i>180):
+        continue
+    #print(i/180*np.pi)
+    lidar_data.append(polar_to_cartesian(data[i],i/180*np.pi))
+
+#print(lidar_data)
+lidar_data=np.array(lidar_data)
 
 
-    def step(self,sensor_data,angle):
-        """
-        execute one step of the state machine
-        """
-        v,w=0,0
-        if self.state==States.SEARCHING:
-            v,w=self.searching(sensor_data,angle)
-        elif self.state==States.POSITIONING:
-            v,w=self.positioning(sensor_data,angle)
-        elif self.state==States.PARKING1:
-            v,w=self.parking1(sensor_data,angle)
-        elif self.state==States.PARKING2:
-            v,w=self.parking2(sensor_data,angle)
-        elif self.state==States.PARKING3:
-            v,w=self.parking3(sensor_data,angle)
-        elif self.state==States.PARKING4:
-            v,w=self.parking4(sensor_data,angle)
-        elif self.state==States.PARKED:
-            v,w=0,0
-        return v,w
-    def searching(self,sensor_data,angle):
-        """
-        search for a parking spot
-        move fordward until right sensor doesnt detect a car
-        """
-        if(sensor_data["right"]>5):
-            self.state=States.POSITIONING
-            return 0,0
-        return 2,0
-    def positioning(self,sensor_data,angle):
-        """
-        position the robot in front of the parking spot
-        move forward until the back sensor detects a car
-        """
-        if(sensor_data["positioning_point"]<5):
-            self.state=States.PARKING1
-            return 0,0
-        return 1,0
-    def parking1(self,sensor_data,angle):
-        """
-        first turn
-        turn left until 45 degrees
-        """
-        if(angle>3.14/4):
-            self.state=States.PARKING2
-            return 0,0
-        return -0.5,0.10
-    def parking2(self,sensor_data,angle):
-        """
-        move backwards
-        """
-        if(sensor_data["start_correcting_point"]>5):
-            self.state=States.PARKING3
-            return 0,0
-        return -0.5,0
-    def parking3(self,sensor_data,angle):
-        """
-        second turn
-        turn right until 0 degrees
-        """
-        if(angle<0.01):
-            self.state=States.PARKING4
-            return 0,0
-        return -0.5,-0.13
-    def parking4(self,sensor_data,angle):
-        """
-        move forward
-        move forward until the front sensor detects a car closer
-        """
-        if(sensor_data["front"]<1):
-            self.state=States.PARKED
-            return 0,0
-        return 0.5,0
+coefficients=calculate_main_direction(lidar_data)
+# Visualiza los resultados
+plt.scatter(lidar_data[:, 0], lidar_data[:, 1], label='Datos Lidar', color='blue', marker='.')
+#generate values to draw the line
+x_values = np.linspace(-5, 5, 100)
+y_values = coefficients[0] + coefficients[1] * x_values
+#plot the line
+# Dibuja el punto (0, 0)
+plt.scatter(0, 0, color='green', marker='o', label='Punto (0, 0)')
+plt.plot(x_values, y_values, color='red', linewidth=2, label='Ajuste Lineal')
 
-    
+plt.xlim(left=-5, right=5)
+plt.ylim(bottom=-1, top=7)
+plt.xlabel('X')
+plt.ylabel('Y')
+plt.legend()
+plt.show()
